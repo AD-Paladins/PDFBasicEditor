@@ -10,24 +10,13 @@ import SwiftData
 
 @main
 struct PDFReaderOneApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
 
     var body: some Scene {
         WindowGroup {
-            PDFFormEditorView(pdfURL: URL(string: "https://www.uscis.gov/sites/default/files/document/forms/i-130.pdf")!)
+            NavigationStack {
+                PDFFormEditorView(pdfURL: URL(string: "https://mcforms.mayo.edu/mc0001-mc0099/mc0072-94.pdf")!)
+            }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
 

@@ -10,27 +10,37 @@ import PDFKit
 
 struct PDFFormEditorView: View {
     let pdfURL: URL
-    @State private var pdfDocument: PDFDocument?
+    
+    @StateObject private var controller = PDFEditorController()
+    @State private var showSignaturePad = false
 
     var body: some View {
-        VStack {
-            if let document = pdfDocument {
-                PDFKitView(document: document)
-            } else {
-                ProgressView("Loading PDF…")
-            }
-        }
+        PDFKitView(controller: controller)
         .navigationTitle("Edit PDF")
         .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Sign") {
+                    showSignaturePad = true
+                }
+                
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Print") {
                     printPDF()
                 }
+
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Save") {
                     savePDF()
                 }
+
+            }
+        }
+        .buttonStyle(.glass)
+        .sheet(isPresented: $showSignaturePad) {
+            SignatureSheet { drawing in
+                controller.addSignature(drawing: drawing)
             }
         }
         .task {
@@ -45,7 +55,7 @@ extension PDFFormEditorView {
         do {
             let (data, _) = try await URLSession.shared.data(from: pdfURL)
             if let document = PDFDocument(data: data) {
-                pdfDocument = document
+                controller.configure(with: document)
             }
         } catch {
             print("Failed to load PDF:", error)
@@ -56,7 +66,7 @@ extension PDFFormEditorView {
 extension PDFFormEditorView {
 
     func savePDF() {
-        guard let document = pdfDocument else { return }
+        guard let document = controller.pdfView.document else { return }
 
         let fileManager = FileManager.default
         let docsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -73,7 +83,7 @@ extension PDFFormEditorView {
 extension PDFFormEditorView {
 
     func printPDF() {
-        guard let document = pdfDocument else { return }
+        guard let document = controller.pdfView.document else { return }
 
         let printController = UIPrintInteractionController.shared
         printController.printingItem = document.dataRepresentation()
@@ -82,18 +92,169 @@ extension PDFFormEditorView {
 }
 
 struct PDFKitView: UIViewRepresentable {
-    let document: PDFDocument
+    @ObservedObject var controller: PDFEditorController
 
     func makeUIView(context: Context) -> PDFView {
-        let pdfView = PDFView()
+        controller.pdfView
+    }
+
+    func updateUIView(_ uiView: PDFView, context: Context) {}
+}
+
+import PencilKit
+import SwiftUI
+
+struct SignatureCaptureView: UIViewRepresentable {
+    let canvasView = PKCanvasView()
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvasView.drawingPolicy = .anyInput
+        canvasView.backgroundColor = .clear
+        return canvasView
+    }
+
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
+
+    func drawing() -> PKDrawing {
+        canvasView.drawing
+    }
+}
+
+
+import PDFKit
+import UIKit
+import Combine
+
+final class PDFEditorController: ObservableObject {
+    @Published var pdfView = PDFView()
+    private var panGesture: UIPanGestureRecognizer?
+    private var draggingAnnotation: PDFAnnotation?
+    private var lastPanLocationInPage: CGPoint?
+
+    func configure(with document: PDFDocument) {
         pdfView.document = document
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.isUserInteractionEnabled = true
 
-        return pdfView
+        if panGesture == nil {
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+            pan.maximumNumberOfTouches = 1
+            pan.minimumNumberOfTouches = 1
+            pan.cancelsTouchesInView = false
+            pdfView.addGestureRecognizer(pan)
+            panGesture = pan
+        }
     }
 
-    func updateUIView(_ uiView: PDFView, context: Context) {}
+    func addSignature(drawing: PKDrawing) {
+        guard let page = pdfView.currentPage else { return }
+        
+        let pageBounds = page.bounds(for: .mediaBox)
+        
+        let signatureRect = CGRect(
+            x: pageBounds.midX - 100,
+            y: pageBounds.minY + 80,
+            width: 200,
+            height: 80
+        )
+        
+        let inkAnnotation = PDFAnnotation(
+            bounds: signatureRect,
+            forType: .ink,
+            withProperties: nil
+        )
+        
+        let drawingBounds = drawing.bounds
+        let sx = signatureRect.width / max(drawingBounds.width, 1)
+        let sy = signatureRect.height / max(drawingBounds.height, 1)
+        let scale = min(sx, sy)
+        let offsetX = (signatureRect.width - drawingBounds.width * scale) / 2
+        let offsetY = (signatureRect.height - drawingBounds.height * scale) / 2
+        
+        for stroke in drawing.strokes {
+            let path = UIBezierPath()
+            let count = stroke.path.count
+            guard count > 0 else { continue }
+
+            // First point
+            let p0 = stroke.path[0].location
+            let nx0 = p0.x - drawingBounds.minX
+            let ny0 = p0.y - drawingBounds.minY
+            let flippedY0 = drawingBounds.height - ny0
+            let local0 = CGPoint(x: offsetX + nx0 * scale, y: offsetY + flippedY0 * scale)
+            path.move(to: local0)
+
+            if count > 1 {
+                for i in 1..<count {
+                    let p = stroke.path[i].location
+                    let nx = p.x - drawingBounds.minX
+                    let ny = p.y - drawingBounds.minY
+                    let flippedY = drawingBounds.height - ny
+                    let local = CGPoint(x: offsetX + nx * scale, y: offsetY + flippedY * scale)
+                    path.addLine(to: local)
+                }
+            }
+
+            inkAnnotation.add(path)
+        }
+        
+        inkAnnotation.color = .black
+        let border = PDFBorder()
+        border.lineWidth = 2
+        inkAnnotation.border = border
+        
+        page.addAnnotation(inkAnnotation)
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        let location = gesture.location(in: pdfView)
+        guard let page = pdfView.page(for: location, nearest: true) else { return }
+        let pagePoint = pdfView.convert(location, to: page)
+
+        switch gesture.state {
+        case .began:
+            // Find the topmost annotation at the touch point
+            if let hit = page.annotations.last(where: { $0.bounds.contains(pagePoint) }) {
+                draggingAnnotation = hit
+                lastPanLocationInPage = pagePoint
+            }
+        case .changed:
+            if let dragging = draggingAnnotation, let last = lastPanLocationInPage {
+                let dx = pagePoint.x - last.x
+                let dy = pagePoint.y - last.y
+                var newBounds = dragging.bounds
+                newBounds.origin.x += dx
+                newBounds.origin.y += dy
+                dragging.bounds = newBounds
+                lastPanLocationInPage = pagePoint
+            }
+        default:
+            draggingAnnotation = nil
+            lastPanLocationInPage = nil
+        }
+    }
 }
+
+struct SignatureSheet: View {
+    let onConfirm: (PKDrawing) -> Void
+    @Environment(\.dismiss) private var dismiss
+    let captureView = SignatureCaptureView()
+    
+    var body: some View {
+        VStack {
+            captureView
+                .frame(height: 300)
+                .border(.gray)
+            
+            Button("Confirm") {
+                let drawing = captureView.drawing()
+                onConfirm(drawing)
+                dismiss()
+            }
+        }
+        .padding()
+    }
+}
+
