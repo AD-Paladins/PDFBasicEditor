@@ -16,41 +16,38 @@ struct PDFFormEditorView: View {
 
     var body: some View {
         PDFKitView(controller: controller)
-        .navigationTitle("Edit PDF")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Sign") {
-                    showSignaturePad = true
+            .navigationTitle("Edit PDF")
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Sign") {
+                        showSignaturePad = true
+                    }
                 }
-                
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Print") {
-                    printPDF()
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Print") {
+                        printPDF()
+                    }
                 }
-
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Save") {
-                    savePDF()
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        savePDF()
+                    }
                 }
-
             }
-        }
-        .buttonStyle(.glass)
-        .sheet(isPresented: $showSignaturePad) {
-            SignatureSheet { drawing in
-                controller.addSignature(drawing: drawing)
+            .sheet(isPresented: $showSignaturePad) {
+                SignatureSheet { drawing in
+                    controller.addSignature(drawing: drawing)
+                }
             }
-        }
-        .task {
-            await loadPDF()
-        }
+            .task {
+                await loadPDF()
+            }
     }
 }
 
 extension PDFFormEditorView {
-
     func loadPDF() async {
         do {
             let (data, _) = try await URLSession.shared.data(from: pdfURL)
@@ -64,7 +61,6 @@ extension PDFFormEditorView {
 }
 
 extension PDFFormEditorView {
-
     func savePDF() {
         guard let document = controller.pdfView.document else { return }
 
@@ -81,7 +77,6 @@ extension PDFFormEditorView {
 }
 
 extension PDFFormEditorView {
-
     func printPDF() {
         guard let document = controller.pdfView.document else { return }
 
