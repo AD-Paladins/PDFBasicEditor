@@ -25,8 +25,10 @@ struct PDFReaderOneApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            PDFFormEditorView(pdfURL: URL(string: "https://www.uscis.gov/sites/default/files/document/forms/i-130.pdf")!)
         }
         .modelContainer(sharedModelContainer)
     }
 }
+
+
