@@ -8,6 +8,26 @@
 import SwiftUI
 import PDFKit
 
+func removeButtonAnnotation(from pdfDocument: PDFDocument, buttonFieldName: String...) {
+    for i in 0..<pdfDocument.pageCount {
+        if let page = pdfDocument.page(at: i) {
+            for annotation in page.annotations {
+                
+                print(annotation.fieldName ?? "No Name")
+                print(annotation.widgetFieldType.rawValue)
+                print(annotation.widgetStringValue ?? "No Value")
+                print("")
+                // Check if the annotation matches the button you want to remove
+                if let fieldName = annotation.fieldName, buttonFieldName.contains(fieldName) && annotation.widgetFieldType == .button {
+                    page.removeAnnotation(annotation)
+                    print("Removed button: \(buttonFieldName) from page \(i + 1)")
+                    return // Exit if you only need to remove one specific button
+                }
+            }
+        }
+    }
+}
+
 struct PDFFormEditorView: View {
     let pdfURL: URL
     
@@ -52,6 +72,7 @@ extension PDFFormEditorView {
         do {
             let (data, _) = try await URLSession.shared.data(from: pdfURL)
             if let document = PDFDocument(data: data) {
+                removeButtonAnnotation(from: document, buttonFieldName: "Complete and print", "Print", "Reset Form", "Signature Required")
                 controller.configure(with: document)
             }
         } catch {
@@ -86,6 +107,7 @@ extension PDFFormEditorView {
     }
 }
 
+
 struct PDFKitView: UIViewRepresentable {
     @ObservedObject var controller: PDFEditorController
 
@@ -95,26 +117,6 @@ struct PDFKitView: UIViewRepresentable {
 
     func updateUIView(_ uiView: PDFView, context: Context) {}
 }
-
-import PencilKit
-import SwiftUI
-
-struct SignatureCaptureView: UIViewRepresentable {
-    let canvasView = PKCanvasView()
-
-    func makeUIView(context: Context) -> PKCanvasView {
-        canvasView.drawingPolicy = .anyInput
-        canvasView.backgroundColor = .clear
-        return canvasView
-    }
-
-    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
-
-    func drawing() -> PKDrawing {
-        canvasView.drawing
-    }
-}
-
 
 import PDFKit
 import UIKit
@@ -232,6 +234,11 @@ final class PDFEditorController: ObservableObject {
     }
 }
 
+
+
+import PencilKit
+import SwiftUI
+
 struct SignatureSheet: View {
     let onConfirm: (PKDrawing) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -253,3 +260,18 @@ struct SignatureSheet: View {
     }
 }
 
+struct SignatureCaptureView: UIViewRepresentable {
+    let canvasView = PKCanvasView()
+
+    func makeUIView(context: Context) -> PKCanvasView {
+        canvasView.drawingPolicy = .anyInput
+        canvasView.backgroundColor = .clear
+        return canvasView
+    }
+
+    func updateUIView(_ uiView: PKCanvasView, context: Context) {}
+
+    func drawing() -> PKDrawing {
+        canvasView.drawing
+    }
+}
